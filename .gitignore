@@ -1,0 +1,11 @@
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+.env
+.env.example
+
+# Docs
+QUICKSTART.md
+RAILWAY_DEPLOY_GUIDE.md

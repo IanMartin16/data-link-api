@@ -1,0 +1,136 @@
+[
+{
+  "job_id": "2a620e1e-bf8f-44a8-8c1a-f9535a6ad66f",
+  "status": "COMPLETED",
+  "format": "csv",
+  "preset": "Remove duplicates by email",
+  "original_file_name": "data_link_2M.csv",
+  "file_size_mb": 121.96,
+  "stats": {
+    "total_records": 2000000,
+    "duplicates_removed": 50000,
+    "records_filtered": 0,
+    "records_kept": 1950000,
+    "reduction_percentage": 2.5
+  },
+  "download_url": "/api/v1/jobs/2a620e1e-bf8f-44a8-8c1a-f9535a6ad66f/download",
+  "error": null,
+  "created_at": "2026-04-11T15:44:30.852824",
+  "completed_at": "2026-04-11T15:46:10.117922"
+},
+
+{
+  "job_id": "9a4c6d52-a151-4d02-bd6a-80829d5c2be8",
+  "status": "COMPLETED",
+  "format": "csv",
+  "preset": "Remove duplicates by email",
+  "original_file_name": "data_link_4M.csv",
+  "file_size_mb": 247.07,
+  "stats": {
+    "total_records": 4000000,
+    "duplicates_removed": 150000,
+    "records_filtered": 0,
+    "records_kept": 3850000,
+    "reduction_percentage": 3.75
+  },
+  "download_url": "/api/v1/jobs/9a4c6d52-a151-4d02-bd6a-80829d5c2be8/download",
+  "error": null,
+  "created_at": "2026-04-11T17:42:26.127062",
+  "completed_at": "2026-04-11T17:46:33.802756"
+},
+{
+  "job_id": "dc1901e6-6e8b-4235-8719-6af127097363",
+  "status": "COMPLETED",
+  "format": "csv",
+  "preset": "Remove duplicates by email",
+  "original_file_name": "data_link_4M.csv",
+  "file_size_mb": 247.07,
+  "stats": {
+    "total_records": 4000000,
+    "duplicates_removed": 150000,
+    "records_filtered": 0,
+    "records_kept": 3850000,
+    "reduction_percentage": 3.75
+  },
+  "download_url": "/api/v1/jobs/dc1901e6-6e8b-4235-8719-6af127097363/download",
+  "error": null,
+  "created_at": "2026-04-11T18:24:52.278175",
+  "completed_at": "2026-04-11T18:27:38.108324"
+},
+{
+  "job_id": "9a681ec9-a3d5-4302-bc18-0b056365f3a0",
+  "status": "COMPLETED",
+  "format": "json",
+  "preset": "Remove duplicates by email",
+  "original_file_name": "data_link_3M.json",
+  "file_size_mb": 438.89,
+  "stats": {
+    "total_records": 3000000,
+    "duplicates_removed": 350000,
+    "records_filtered": 0,
+    "records_kept": 2650000,
+    "reduction_percentage": 11.67
+  },
+  "download_url": "/api/v1/jobs/9a681ec9-a3d5-4302-bc18-0b056365f3a0/download",
+  "error": null,
+  "created_at": "2026-04-11T19:22:03.771121",
+  "completed_at": "2026-04-11T19:31:09.134972"
+},
+{
+  "job_id": "85c475ed-5b73-4240-8a68-c17f7317bef8",
+  "status": "COMPLETED",
+  "format": "json",
+  "preset": "Remove duplicates by email",
+  "original_file_name": "data_link_300.json",
+  "file_size_mb": 0.04,
+  "stats": {
+    "total_records": 300,
+    "duplicates_removed": 248,
+    "records_filtered": 0,
+    "records_kept": 52,
+    "reduction_percentage": 82.67
+  },
+  "download_url": "/api/v1/jobs/85c475ed-5b73-4240-8a68-c17f7317bef8/download",
+  "error": null,
+  "created_at": "2026-04-11T19:34:49.833132",
+  "completed_at": "2026-04-11T19:34:51.662495"
+},
+{
+  "job_id": "f92d8843-4256-4f8d-a5d5-17459372215a",
+  "status": "COMPLETED",
+  "format": "csv",
+  "preset": "Remove duplicates by email",
+  "original_file_name": "data_link_6M.csv",
+  "file_size_mb": 371.51,
+  "stats": {
+    "total_records": 6000000,
+    "duplicates_removed": 1350000,
+    "records_filtered": 0,
+    "records_kept": 4650000,
+    "reduction_percentage": 22.5
+  },
+  "download_url": "/api/v1/jobs/f92d8843-4256-4f8d-a5d5-17459372215a/download",
+  "error": null,
+  "created_at": "2026-04-11T19:40:00.427160",
+  "completed_at": "2026-04-11T19:48:07.172987"
+},
+{
+  "job_id": "f422a611-9668-4abd-9cea-eca2e661bebd",
+  "status": "COMPLETED",
+  "format": "json",
+  "preset": "Remove duplicates by email",
+  "original_file_name": "data_link_300.json",
+  "file_size_mb": 0.04,
+  "stats": {
+    "total_records": 300,
+    "duplicates_removed": 40,
+    "records_filtered": 0,
+    "records_kept": 260,
+    "reduction_percentage": 13.33
+  },
+  "download_url": "/api/v1/jobs/f422a611-9668-4abd-9cea-eca2e661bebd/download",
+  "error": null,
+  "created_at": "2026-04-11T19:51:23.382746",
+  "completed_at": "2026-04-11T19:51:28.354515"
+}
+]

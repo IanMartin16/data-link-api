@@ -12,7 +12,7 @@ async def get_api_key_optional(
     x_api_key: Optional[str] = Header(None, description="Your API key")
 ) -> Optional[str]:
     """
-    Obtiene API key opcional (para endpoints públicos)
+    Return an optional API key for public endpoints.
     """
     return x_api_key
 
@@ -22,35 +22,34 @@ async def verify_api_key(
     db: Session = Depends(get_db)
 ) -> User:
     """
-    Verifica API key y retorna usuario
-    
-    Uso:
+    Validate API key and return the authenticated user.
+
+    Usage:
         @router.post("/endpoint")
         async def endpoint(user: User = Depends(verify_api_key)):
-            # user está autenticado
+            ...
     """
-    
+
     if not x_api_key:
         raise HTTPException(
             status_code=401,
             detail="Missing API key. Include X-API-Key header."
         )
-    
-    # Buscar usuario por API key
+
     user = db.query(User).filter(User.api_key == x_api_key).first()
-    
+
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Invalid API key"
+            detail="Invalid API key."
         )
-    
+
     if not user.is_active:
         raise HTTPException(
             status_code=403,
-            detail="Account suspended. Contact support@datalink.com"
+            detail="Account is inactive. Contact support."
         )
-    
+
     return user
 
 
@@ -59,53 +58,53 @@ async def check_plan_limits(
     db: Session = Depends(get_db)
 ) -> tuple[User, PlanLimits]:
     """
-    Verifica que el usuario no haya excedido sus límites mensuales
-    
-    Uso:
+    Validate that the authenticated user is within plan limits.
+
+    Usage:
         @router.post("/process")
         async def process(auth: tuple = Depends(check_plan_limits)):
             user, limits = auth
     """
-    
-    # Obtener límites del plan
+
     limits = db.query(PlanLimits).filter(
         PlanLimits.plan == user.plan
     ).first()
-    
+
     if not limits:
         raise HTTPException(
             status_code=500,
             detail="Plan configuration error. Contact support."
         )
-    
-    # Verificar límite mensual de archivos
+
     if not limits.is_unlimited_files:
         if user.files_processed_this_month >= limits.files_per_month:
+            reset_date = (
+                user.last_reset_date.strftime("%Y-%m-%d")
+                if user.last_reset_date else None
+            )
+
             raise HTTPException(
                 status_code=429,
                 detail={
                     "error": "Monthly file limit reached",
                     "files_processed": user.files_processed_this_month,
                     "plan_limit": limits.files_per_month,
-                    "reset_date": user.last_reset_date.strftime("%Y-%m-%d"),
+                    "reset_date": reset_date,
                     "current_plan": user.plan,
                     "upgrade_options": _get_upgrade_options(user.plan)
                 }
             )
-    
+
     return user, limits
 
 
 def validate_file_size(file_size_bytes: int, limits: PlanLimits, user: User):
     """
-    Valida que el archivo no exceda el límite del plan
-    
-    Uso:
-        validate_file_size(file_size, limits, user)
+    Validate file size against current plan.
     """
-    
+
     file_size_mb = file_size_bytes / (1024 * 1024)
-    
+
     if file_size_mb > limits.max_file_size_mb:
         raise HTTPException(
             status_code=400,
@@ -119,88 +118,86 @@ def validate_file_size(file_size_bytes: int, limits: PlanLimits, user: User):
         )
 
 
-def validate_preset_access(preset: PresetOperation, user: User):
+def validate_record_count(record_count: int, limits: PlanLimits, user: User):
     """
-    Valida que el usuario tenga acceso al preset
-    
-    FREE plan solo tiene acceso a 2 presets
+    Validate record count against current plan.
     """
-    
-    if user.plan == "FREE":
-        allowed_presets = [
-            PresetOperation.REMOVE_DUPLICATES_BY_EMAIL,
-            PresetOperation.REMOVE_DUPLICATES_BY_ID
-        ]
-        
-        if preset not in allowed_presets:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error": "Preset not available in FREE plan",
-                    "requested_preset": preset.display_name,
-                    "available_presets": [p.display_name for p in allowed_presets],
-                    "upgrade_options": _get_upgrade_options(user.plan)
-                }
-            )
 
-
-def validate_custom_filter_access(has_custom_filter: bool, limits: PlanLimits, user: User):
-    """
-    Valida que el usuario pueda usar filtros custom
-    
-    FREE plan no tiene acceso a filtros custom
-    """
-    
-    if has_custom_filter and not limits.custom_filters_allowed:
+    if record_count > limits.max_records_per_file:
         raise HTTPException(
-            status_code=403,
+            status_code=400,
             detail={
-                "error": "Custom filters not available in FREE plan",
+                "error": "Record count exceeds plan limit",
+                "your_record_count": record_count,
+                "plan_limit_records": limits.max_records_per_file,
                 "current_plan": user.plan,
                 "upgrade_options": _get_upgrade_options(user.plan)
             }
         )
 
 
-def _get_upgrade_options(current_plan: str) -> dict:
+def validate_preset_access(preset: PresetOperation, user: User):
     """
-    Retorna opciones de upgrade según el plan actual
+    Validate preset availability by plan.
+
+    FREE plan only has access to 2 presets.
     """
-    
+
+    if user.plan == "FREE":
+        allowed_presets = [
+            PresetOperation.REMOVE_DUPLICATES_BY_EMAIL,
+            PresetOperation.REMOVE_DUPLICATES_BY_ID
+        ]
+
+        if preset not in allowed_presets:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Preset not available for current plan",
+                    "requested_preset": preset.display_name,
+                    "available_presets": [p.display_name for p in allowed_presets],
+                    "current_plan": user.plan,
+                    "upgrade_options": _get_upgrade_options(user.plan)
+                }
+            )
+
+
+def validate_custom_filter_access(
+    has_custom_filter: bool,
+    limits: PlanLimits,
+    user: User
+):
+    """
+    Validate custom filter availability by plan.
+    """
+
+    if has_custom_filter and not limits.custom_filters_allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Custom filters are not available for current plan",
+                "current_plan": user.plan,
+                "upgrade_options": _get_upgrade_options(user.plan)
+            }
+        )
+
+
+def _get_upgrade_options(current_plan: str) -> dict | None:
+    """
+    Return upgrade guidance for the current plan.
+    """
+
     upgrade_paths = {
         "FREE": {
             "recommended_plan": "STARTER",
-            "price": "$29/month",
             "benefits": [
-                "100 files/month (vs 10)",
-                "100 MB files (vs 10 MB)",
-                "All 5 presets",
+                "Higher monthly file limits",
+                "Larger file size limits",
+                "Access to all presets",
                 "Custom filters"
             ]
         },
-        "STARTER": {
-            "recommended_plan": "PRO",
-            "price": "$99/month",
-            "benefits": [
-                "500 files/month (vs 100)",
-                "500 MB files (vs 100 MB)",
-                "3 API keys",
-                "Priority support",
-                "99.5% SLA"
-            ]
-        },
-        "PRO": {
-            "recommended_plan": "BUSINESS",
-            "price": "$299/month",
-            "benefits": [
-                "Unlimited files",
-                "2 GB files (vs 500 MB)",
-                "10 API keys",
-                "4h support",
-                "99.9% SLA"
-            ]
-        },
-        "BUSINESS": None  # Ya está en el plan más alto
+        "STARTER": None
     }
-    
+
     return upgrade_paths.get(current_plan)

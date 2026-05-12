@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, Float, DateTime
+from sqlalchemy import Column, String, Integer, Boolean, DateTime
 from sqlalchemy.sql import func
 
 from app.database import Base
@@ -6,60 +6,65 @@ from app.database import Base
 
 class PlanLimits(Base):
     __tablename__ = "plan_limits"
-    
-    # Plan (PRIMARY KEY)
+
+    # Plan identifier
     plan = Column(String(20), primary_key=True)
-    
-    # Límites de archivos
-    files_per_month = Column(Integer, nullable=False)
-    # -1 significa ilimitado
-    
+
+    # File usage limits
+    files_per_month = Column(Integer, nullable=False)   # use -1 only if ever needed later
     max_file_size_mb = Column(Integer, nullable=False)
     max_records_per_file = Column(Integer, nullable=False)
-    
-    # Features
+
+    # Feature access
     num_presets = Column(Integer, nullable=False)
     custom_filters_allowed = Column(Boolean, nullable=False, default=False)
-    
-    # API
-    api_keys_count = Column(Integer, nullable=False, default=0)
+
+    # API limits
+    api_keys_count = Column(Integer, nullable=False, default=1)
     requests_per_hour = Column(Integer, nullable=False)
-    
-    # SLA (opcional, puede ser NULL para FREE/STARTER)
-    sla_uptime = Column(Float, nullable=True)
-    
-    # Timestamps
+
+    # Timestamp
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     def __repr__(self):
         return f"<PlanLimits {self.plan}>"
-    
+
     @property
     def is_unlimited_files(self):
-        """Verifica si tiene archivos ilimitados"""
+        """Return True when the plan has no monthly file cap."""
         return self.files_per_month == -1
-    
-    def can_process_file(self, file_size_mb: float, current_month_files: int) -> tuple[bool, str]:
+
+    def can_process_file(
+        self,
+        file_size_mb: float,
+        current_month_files: int,
+        record_count: int | None = None
+    ) -> tuple[bool, str]:
         """
-        Verifica si puede procesar un archivo
-        
+        Validate whether the current plan can process the file.
+
         Returns:
             (can_process, error_message)
         """
-        
-        # Verificar límite mensual
-        if not self.is_unlimited_files:
-            if current_month_files >= self.files_per_month:
-                return False, f"Monthly limit reached ({self.files_per_month} files)"
-        
-        # Verificar tamaño
+
+        if not self.is_unlimited_files and current_month_files >= self.files_per_month:
+            return False, f"Monthly file limit reached ({self.files_per_month} files)"
+
         if file_size_mb > self.max_file_size_mb:
-            return False, f"File too large ({file_size_mb:.1f}MB > {self.max_file_size_mb}MB)"
-        
+            return False, (
+                f"File size exceeds plan limit "
+                f"({file_size_mb:.2f}MB > {self.max_file_size_mb}MB)"
+            )
+
+        if record_count is not None and record_count > self.max_records_per_file:
+            return False, (
+                f"Record count exceeds plan limit "
+                f"({record_count} > {self.max_records_per_file})"
+            )
+
         return True, ""
 
 
-# Seed data para inicializar la tabla
 PLAN_LIMITS_SEED = [
     {
         "plan": "FREE",
@@ -68,9 +73,8 @@ PLAN_LIMITS_SEED = [
         "max_records_per_file": 200000,
         "num_presets": 2,
         "custom_filters_allowed": False,
-        "api_keys_count": 0,
-        "requests_per_hour": 10,
-        "sla_uptime": None
+        "api_keys_count": 1,
+        "requests_per_hour": 20
     },
     {
         "plan": "STARTER",
@@ -80,29 +84,6 @@ PLAN_LIMITS_SEED = [
         "num_presets": 5,
         "custom_filters_allowed": True,
         "api_keys_count": 1,
-        "requests_per_hour": 100,
-        "sla_uptime": None
-    },
-    {
-        "plan": "PRO",
-        "files_per_month": 500,
-        "max_file_size_mb": 500,
-        "max_records_per_file": 10000000,
-        "num_presets": 5,
-        "custom_filters_allowed": True,
-        "api_keys_count": 3,
-        "requests_per_hour": 500,
-        "sla_uptime": 99.50
-    },
-    {
-        "plan": "BUSINESS",
-        "files_per_month": -1,  # Ilimitado
-        "max_file_size_mb": 2000,
-        "max_records_per_file": 40000000,
-        "num_presets": 5,
-        "custom_filters_allowed": True,
-        "api_keys_count": 10,
-        "requests_per_hour": 2000,
-        "sla_uptime": 99.90
+        "requests_per_hour": 100
     }
 ]

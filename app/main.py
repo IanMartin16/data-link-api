@@ -2,24 +2,38 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+from app.config import get_settings
 from app.database import init_db
 from app.routers import jobs, auth
 from app.services.worker_service import worker_service
 
+# Importar modelos para asegurar create_all
+# Ajusta esta línea según tu estructura real
+from app import models
+
+settings = get_settings()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     print("🚀 Iniciando DataLink API...")
+
     init_db()
     print("✅ Base de datos inicializada")
-    worker_service.start()
-    print("✅ Worker iniciado")
-    
+
+    if settings.worker_enabled:
+        worker_service.start()
+        print("✅ Worker iniciado")
+    else:
+        print("⏸️ Worker deshabilitado")
+
     yield
-    
-    # Shutdown
-    worker_service.stop()
+
+    if settings.worker_enabled:
+        worker_service.stop()
+
     print("👋 DataLink API detenida")
+
 
 app = FastAPI(
     title="Data_Link API",
@@ -32,7 +46,6 @@ app = FastAPI(
     )
 )
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,9 +54,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Routers
 app.include_router(jobs.router)
 app.include_router(auth.router)
+
 
 @app.get("/")
 async def root():
@@ -52,6 +65,7 @@ async def root():
         "docs": "/docs",
         "health": "/health"
     }
+
 
 @app.get("/health")
 async def health():

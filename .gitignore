@@ -8,3 +8,5 @@ env/
 
 # Docs
 QUICKSTART.md
+railway.json
+RAILWAY_DEPLOY_GUIDE.md

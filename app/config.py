@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     minio_bucket: str | None = None
     minio_secure: bool = False
 
+    # Cleanup
+    cleanup_enabled: bool = True
+    cleanup_interval_seconds: int = 3600
+
     # App
     max_file_size_mb: int = 500
     worker_enabled: bool = True

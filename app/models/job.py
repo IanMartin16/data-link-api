@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, BigInteger, DateTime, Enum as SQLEnum
+from sqlalchemy import Column, String, Integer,Boolean, BigInteger, DateTime, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import Column, String, ForeignKey
 from datetime import datetime
@@ -45,6 +45,15 @@ class ProcessingJob(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
+
+    # Cleanup
+    expires_at = Column(DateTime)
+    files_deleted = Column(Boolean, nullable=False, default=False)
+    files_deleted_at = Column(DateTime)
+
+    def mark_files_deleted(self):
+        self.files_deleted = True
+        self.files_deleted_at = datetime.utcnow()
     
     def mark_as_processing(self):
         self.status = JobStatus.PROCESSING

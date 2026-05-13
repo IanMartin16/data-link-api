@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from uuid import UUID
+from datetime import datetime, timedelta
 from io import BytesIO
 
 from app.database import get_db
@@ -97,8 +98,11 @@ async def create_processing_job(
 
     job = processing_service.create_job(db, file, request)
 
+    retention_hours = 1 if user.plan == "FREE" else 24
+
     # Associate job with user
     job.user_id = user.id
+    job.expires_at = datetime.utcnow() + timedelta(hours=retention_hours)
     db.commit()
 
     # Count usage after successful job creation

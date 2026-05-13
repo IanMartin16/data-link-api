@@ -25,3 +25,32 @@ def get_db():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+
+def seed_plan_limits():
+    from app.models.plan_limits import PlanLimits, PLAN_LIMITS_SEED
+
+    db = SessionLocal()
+
+    try:
+        for item in PLAN_LIMITS_SEED:
+            existing = db.query(PlanLimits).filter(
+                PlanLimits.plan == item["plan"]
+            ).first()
+
+            if existing:
+                # Actualiza límites si cambiaste el seed
+                for key, value in item.items():
+                    setattr(existing, key, value)
+            else:
+                db.add(PlanLimits(**item))
+
+        db.commit()
+        print("✅ Plan limits seed completed")
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error seeding plan limits: {e}")
+        raise
+
+    finally:
+        db.close()

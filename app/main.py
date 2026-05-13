@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.config import get_settings
-from app.database import init_db
+from app.database import init_db, seed_plan_limits
 from app.routers import jobs, auth
 from app.services.worker_service import worker_service
 
@@ -20,6 +20,9 @@ async def lifespan(app: FastAPI):
 
     init_db()
     print("✅ Base de datos inicializada")
+
+    seed_plan_limits()
+    print("✅ Plan limits inicializados")
 
     if settings.worker_enabled:
         worker_service.start()

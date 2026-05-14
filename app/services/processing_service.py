@@ -33,13 +33,7 @@ class ProcessingService:
         
         db.add(job)
         db.commit()
-        db.refresh(job)
-
-        try:
-            del file_data
-            gc.collect()
-        except UnboundLocalError:
-            pass    
+        db.refresh(job)   
         
         return job
     
@@ -87,14 +81,7 @@ class ProcessingService:
                 result.duplicates_removed,
                 result.records_filtered
             )
-            db.commit()
-
-            try:
-                del input_data
-                del result
-                gc.collect()
-            except UnboundLocalError:
-                pass    
+            db.commit()   
             
         except Exception as e:
             job.mark_as_failed(str(e))

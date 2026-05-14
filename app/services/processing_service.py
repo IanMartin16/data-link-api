@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import UploadFile
 from uuid import UUID
+import gc
 
 from app.models.job import ProcessingJob
 from app.schemas.job import ProcessingRequest
@@ -33,6 +34,12 @@ class ProcessingService:
         db.add(job)
         db.commit()
         db.refresh(job)
+
+        try:
+            del file_data
+            gc.collect()
+        except UnboundLocalError:
+            pass    
         
         return job
     
@@ -81,6 +88,13 @@ class ProcessingService:
                 result.records_filtered
             )
             db.commit()
+
+            try:
+                del input_data
+                del result
+                gc.collect()
+            except UnboundLocalError:
+                pass    
             
         except Exception as e:
             job.mark_as_failed(str(e))

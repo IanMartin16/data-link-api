@@ -18,6 +18,8 @@ class ProcessingService:
         
         # Subir a storage
         input_url = storage_service.upload_file(file_data, file.filename)
+
+        del file_data
         
         # Crear job en BD
         job = ProcessingJob(
@@ -38,6 +40,11 @@ class ProcessingService:
         return job
     
     def process_job(self, db: Session, job: ProcessingJob):
+
+        input_data = None
+        processor = None
+        result = None
+
         try:
             # Marcar como procesando
             job.mark_as_processing()
@@ -66,6 +73,12 @@ class ProcessingService:
             
             # Procesar
             result = processor.process(input_data)
+
+            del input_data
+            input_data = None
+
+            del processor
+            processor = None
             
             # Guardar resultado
             output_url = storage_service.save_result(

@@ -100,5 +100,8 @@ class ProcessingService:
             job.mark_as_failed(str(e))
             db.commit()
             raise
+        finally:
+            input_data = None
+            result = None    
 
 processing_service = ProcessingService()

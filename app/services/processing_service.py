@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 from fastapi import UploadFile
 from uuid import UUID
-import gc
 
 from app.models.job import ProcessingJob
 from app.schemas.job import ProcessingRequest
@@ -18,6 +17,8 @@ class ProcessingService:
         
         # Subir a storage
         input_url = storage_service.upload_file(file_data, file.filename)
+
+        del file_data
         
         # Crear job en BD
         job = ProcessingJob(
@@ -38,6 +39,11 @@ class ProcessingService:
         return job
     
     def process_job(self, db: Session, job: ProcessingJob):
+
+        input_data = None
+        processor = None
+        result = None
+
         try:
             # Marcar como procesando
             job.mark_as_processing()
@@ -67,6 +73,12 @@ class ProcessingService:
             # Procesar
             result = processor.process(input_data)
             
+            del input_data
+            input_data = None
+
+            del processor
+            processor = None
+
             # Guardar resultado
             output_url = storage_service.save_result(
                 result.data, 
@@ -82,10 +94,26 @@ class ProcessingService:
                 result.records_filtered
             )
             db.commit()   
+
+            del result
+            result = None
+
+            try:
+                storage_service_delete_file(job.input_file_url)
+            except Exception as e:
+                print(f"Warning: Could not delete input file: {e}")    
             
         except Exception as e:
             job.mark_as_failed(str(e))
             db.commit()
             raise
+
+        finally:
+            if input_data is not None:
+                del input_data
+            if processor is not None:
+                del processor
+            if result is not None:
+                del result            
 
 processing_service = ProcessingService()

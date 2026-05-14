@@ -95,13 +95,25 @@ class ProcessingService:
                 result.records_filtered
             )
             db.commit()   
+
+            del result 
+            result = None
+
+            try: 
+                storage_service.delete_file(job.input_file_url)
+            except Exception as e:
+                print(f"Warning: Could not delete input file: {e}")    
             
         except Exception as e:
             job.mark_as_failed(str(e))
             db.commit()
             raise
         finally:
-            input_data = None
-            result = None    
+            if input_data is not None:
+                del input_data
+            if processor is not None:
+                del processor
+            if result is not None:
+                del result    
 
 processing_service = ProcessingService()

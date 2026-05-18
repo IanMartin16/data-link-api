@@ -40,6 +40,10 @@ class JobStatusResponse(BaseModel):
     error: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
+    can_download: bool | None = None
+    expires_at: datetime | None = None
+    files_deleted: bool | None = None
+    files_deleted_at: datetime | None = None
     
     class Config:
         from_attributes = True

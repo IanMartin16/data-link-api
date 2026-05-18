@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.config import get_settings
 from app.database import init_db, seed_plan_limits
-from app.routers import jobs, auth, analytics, billing
+from app.routers import jobs, auth, analytics, billing, dashboard
 from app.services.worker_service import worker_service
 
 # Importar modelos para asegurar create_all
@@ -61,6 +61,7 @@ app.include_router(jobs.router)
 app.include_router(auth.router)
 app.include_router(analytics.router)
 app.include_router(billing.router)
+app.include_router(dashboard.router)
 
 @app.get("/")
 async def root():

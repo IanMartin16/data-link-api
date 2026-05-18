@@ -169,7 +169,18 @@ async def get_job_status(
             records_kept=job.records_kept,
             reduction_percentage=round(reduction, 2)
         )
-        response.download_url = f"/api/v1/jobs/{job.id}/download"
+
+        can_download = (
+            job.status.value == "COMPLETED"
+            and bool(job.output_file_url)
+            and not job.files_deleted
+        )
+        response.can_download = can_download
+        response.expires_at = job.expires_at
+        response.files_deleted = job.files_deleted
+        response.files_deleted_at = job.files_deleted_at
+
+        response.download_url = f"/api/v1/jobs/{job.id}/download" if can_download else None
 
     if job.status.value == "FAILED":
         response.error = job.error_message

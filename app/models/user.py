@@ -31,6 +31,7 @@ class User(Base):
     # Billing placeholders (future use)
     stripe_customer_id = Column(String(255), nullable=True)
     stripe_subscription_id = Column(String(255), nullable=True)
+    billing_status = Column(String(50), nullable=True)
 
     # Status
     is_active = Column(Boolean, default=True, nullable=False)

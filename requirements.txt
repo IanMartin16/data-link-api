@@ -28,3 +28,6 @@ pydantic[email]==2.5.3
 # Development
 pytest==7.4.4
 httpx==0.26.0
+
+# Billing
+stripe==11.6.0

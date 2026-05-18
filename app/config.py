@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     cleanup_enabled: bool = True
     cleanup_interval_seconds: int = 3600
 
+    # Stripe / Billing
+    stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    stripe_starter_price_id: str | None = None
+    billing_success_url: str = "http://localhost:3000/data-link?upgrade=success"
+    billing_cancel_url: str = "http://localhost:3000/data-link?upgrade=cancelled"
+
     # App
     max_file_size_mb: int = 500
     worker_enabled: bool = True

@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from uuid import UUID
 from datetime import datetime, timedelta
+from typing import Optional
 from io import BytesIO
 
 from app.database import get_db
@@ -14,6 +15,7 @@ from app.enums.file_format import FileFormat
 from app.enums.preset_operation import PresetOperation
 from app.enums.filter_operator import FilterOperator
 from app.services.processing_service import processing_service
+from app.enums.job_status import JobStatus
 from app.services.storage_service import storage_service
 
 from app.middleware.auth import (
@@ -335,3 +337,81 @@ async def get_presets(user: User = Depends(verify_api_key)):
         "plan": user.plan,
         "presets": all_presets
     }
+
+@router.get("/jobs")
+async def list_jobs(
+    limit: int = 20,
+    offset: int = 0,
+    status: Optional[str] = None,
+    user: User = Depends(verify_api_key),
+    db: Session = Depends(get_db)
+):
+    """
+    List authenticated user's processing jobs.
+
+    Used by Data_Link Console / Dashboard.
+    """
+
+    query = db.query(ProcessingJob).filter(ProcessingJob.user_id == user.id)
+
+    if status:
+        try:
+            query = query.filter(ProcessingJob.status == JobStatus(status))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+
+    total = query.count()
+
+    jobs = (
+        query
+        .order_by(ProcessingJob.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    items = []
+
+    for job in jobs:
+        reduction = 0
+
+        if job.total_records and job.total_records > 0:
+            reduction = (
+                (job.duplicates_removed or 0) + (job.records_filtered or 0)
+            ) * 100.0 / job.total_records
+
+        can_download = (
+            job.status.value == "COMPLETED"
+            and bool(job.output_file_url)
+            and not job.files_deleted
+        )
+
+        items.append({
+            "job_id": str(job.id),
+            "status": job.status.value,
+            "format": job.format.value,
+            "preset": job.preset.display_name,
+            "original_file_name": job.original_file_name,
+            "file_size_mb": job.file_size_mb,
+            "total_records": job.total_records,
+            "duplicates_removed": job.duplicates_removed,
+            "records_filtered": job.records_filtered,
+            "records_kept": job.records_kept,
+            "reduction_percentage": round(reduction, 2),
+            "download_url": f"/api/v1/jobs/{job.id}/download" if can_download else None,
+            "can_download": can_download,
+            "expires_at": job.expires_at,
+            "files_deleted": job.files_deleted,
+            "files_deleted_at": job.files_deleted_at,
+            "created_at": job.created_at,
+            "started_at": job.started_at,
+            "completed_at": job.completed_at,
+            "error": job.error_message if job.status.value == "FAILED" else None
+        })
+
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }    

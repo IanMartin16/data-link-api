@@ -35,11 +35,14 @@ class JobStatusResponse(BaseModel):
     preset: str
     original_file_name: str
     file_size_mb: float
+    created_at: datetime
+    started_at: datetime | None = None
+    completed_at: Optional[datetime] = None
+
     stats: Optional[JobStats] = None
     download_url: Optional[str] = None
     error: Optional[str] = None
-    created_at: datetime
-    completed_at: Optional[datetime] = None
+
     can_download: bool | None = None
     expires_at: datetime | None = None
     files_deleted: bool | None = None

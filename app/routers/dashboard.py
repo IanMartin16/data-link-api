@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.job import ProcessingJob
 from app.models.plan_limits import PlanLimits
 from app.enums.job_status import JobStatus
+from app.enums.preset_operation import PresetOperation
 
 
 router = APIRouter(prefix="/api/v1", tags=["dashboard"])
@@ -150,6 +151,27 @@ async def get_dashboard(
 
     can_upgrade = user.plan == "FREE"
 
+    all_presets = [
+        {
+            "value": preset.value,
+            "display_name": preset.display_name,
+            "description": preset.description,
+            "available": True
+        }
+        for preset in PresetOperation
+    ]
+
+    if user.plan == "FREE":
+        free_allowed = [
+            PresetOperation.REMOVE_DUPLICATES_BY_EMAIL.value,
+            PresetOperation.REMOVE_DUPLICATES_BY_ID.value
+        ]
+
+        for preset in all_presets:
+            preset["available"] = preset["value"] in free_allowed
+            if not preset["available"]:
+                preset["locked_message"] = "Upgrade to STARTER to unlock this preset."
+
     return {
         "user": {
             "id": user.id,
@@ -175,6 +197,7 @@ async def get_dashboard(
             "api_keys_count": limits.api_keys_count,
             "requests_per_hour": limits.requests_per_hour
         },
+        "presets": all_presets,
         "analytics": {
             "total_jobs": total_jobs,
             "completed_jobs": len(completed_jobs),

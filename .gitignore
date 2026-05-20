@@ -10,4 +10,5 @@ env/
 QUICKSTART.md
 railway.json
 RAILWAY_DEPLOY_GUIDE.md
-evidencias_post_deploy_data-link.md
+evidencias_post_deploy_data-link.md.env 
+.env.* 

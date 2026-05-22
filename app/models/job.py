@@ -1,6 +1,6 @@
-from sqlalchemy import Column, String, Integer,Boolean, BigInteger, DateTime, Enum as SQLEnum
+from sqlalchemy import Column, String, Integer, Boolean, BigInteger, DateTime, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy import Column, String, ForeignKey
+from sqlalchemy import ForeignKey, func
 from datetime import datetime
 import uuid
 
@@ -43,6 +43,7 @@ class ProcessingJob(Base):
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
 
@@ -51,13 +52,18 @@ class ProcessingJob(Base):
     files_deleted = Column(Boolean, nullable=False, default=False)
     files_deleted_at = Column(DateTime)
 
+    def touch(self):
+        self.updated_at = datetime.utcnow()
+
     def mark_files_deleted(self):
         self.files_deleted = True
         self.files_deleted_at = datetime.utcnow()
+        self.touch()
     
     def mark_as_processing(self):
         self.status = JobStatus.PROCESSING
         self.started_at = datetime.utcnow()
+        self.touch()
     
     def mark_as_completed(self, output_url: str, total: int, duplicates: int, filtered: int):
         self.status = JobStatus.COMPLETED
@@ -67,11 +73,13 @@ class ProcessingJob(Base):
         self.records_filtered = filtered
         self.records_kept = total - duplicates - filtered
         self.completed_at = datetime.utcnow()
+        self.touch()
     
     def mark_as_failed(self, error: str):
         self.status = JobStatus.FAILED
         self.error_message = error
         self.completed_at = datetime.utcnow()
+        self.touch()
     
     @property
     def file_size_mb(self):

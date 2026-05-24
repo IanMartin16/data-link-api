@@ -38,7 +38,7 @@ class OrphanCleanupService:
 
         for prefix in prefixes:
             for obj in storage_service.client.list_objects(
-                settings.minio_bucket,
+                settings.storage_bucket,
                 prefix=prefix,
                 recursive=True
             ):

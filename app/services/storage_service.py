@@ -13,6 +13,13 @@ class StorageService:
     def __init__(self):
         self.backend = settings.storage_backend
         self.bucket = settings.resolved_storage_bucket
+        self.bucket_name = (
+            getattr(settings, "s3_bucket", None)
+            or getattr(settings, "storage_bucket", None)
+            or getattr(settings, "minio_bucket", None)
+        )
+        if not self.bucket_name:
+            raise RuntimeError("Storage bucket is not configured.")
 
         self.client = Minio(
             settings.resolved_storage_endpoint,

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     # Cleanup
     cleanup_enabled: bool = True
     cleanup_interval_seconds: int = 3600
+    admin_cleanup_token: str | None = None
 
     # Stripe / Billing
     stripe_secret_key: str | None = None

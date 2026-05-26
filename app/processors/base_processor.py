@@ -40,6 +40,9 @@ class BaseProcessor(ABC):
         elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL_AND_PHONE:
             return ["email", "phone"]
 
+        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_FIELD:
+            return []
+
         elif self.preset == PresetOperation.FILTER_ACTIVE_ONLY:
             return ["status"]
 
@@ -76,6 +79,25 @@ class BaseProcessor(ABC):
                 return False
 
             seen.add(email)
+            return True
+        
+        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_FIELD:
+            if not self.filter_field:
+                raise ValueError(
+                    "This preset requires a field name. "
+                    "Please choose the field to deduplicate by."
+                )
+
+            field_value = self.normalize_text(record.get(self.filter_field))
+
+            # No usar vacíos como clave deduplicable
+            if not field_value:
+                return True
+
+            if field_value in seen:
+                return False
+
+            seen.add(field_value)
             return True
 
         elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_ID:
@@ -136,3 +158,26 @@ class BaseProcessor(ABC):
             self.normalize_text(field_value),
             self.normalize_text(self.filter_value)
         )
+    
+    def validate_selected_field_exists(self, available_fields) -> None:
+        """
+        Valida que REMOVE_DUPLICATES_BY_FIELD tenga un campo seleccionado
+        y que ese campo exista en el dataset.
+        """
+        if self.preset != PresetOperation.REMOVE_DUPLICATES_BY_FIELD:
+            return
+
+        if not self.filter_field:
+            raise ValueError(
+                "This preset requires a field name. "
+                "Please choose the field to deduplicate by."
+            )
+
+        available_fields_set = set(str(field) for field in available_fields)
+
+        if self.filter_field not in available_fields_set:
+            available = ", ".join(sorted(available_fields_set))
+            raise ValueError(
+                f'Field "{self.filter_field}" was not found in your file. '
+                f"Available fields: {available}"
+            )

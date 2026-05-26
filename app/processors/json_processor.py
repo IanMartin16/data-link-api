@@ -48,17 +48,24 @@ class JsonProcessor(BaseProcessor):
 
         total_records = len(data)
 
-        # Validación de campos requeridos
+        # Validación de campos requeridos / campo seleccionado
         required_fields = self.required_fields()
-        if data and required_fields:
+        if data:
             available_fields = set()
             for record in data:
                 available_fields.update(record.keys())
 
-            missing_fields = [field for field in required_fields if field not in available_fields]
-            if missing_fields:
-                missing_str = ", ".join(missing_fields)
-                raise ValueError(f"Missing required fields for preset: {missing_str}")
+            if required_fields:
+                missing_fields = [
+                    field for field in required_fields
+                    if field not in available_fields
+                ]
+
+                if missing_fields:
+                    missing_str = ", ".join(missing_fields)
+                    raise ValueError(f"Missing required fields for preset: {missing_str}")
+
+            self.validate_selected_field_exists(available_fields)
 
         # Procesamiento secuencial
         seen = set()
@@ -129,17 +136,23 @@ class JsonProcessor(BaseProcessor):
         
         # Validación de campos requeridos (solo primer chunk)
         required_fields = self.required_fields()
-        if required_fields and chunks[0]:
+        if chunks[0]:
             available_fields = set()
-            # Revisar primeros 100 registros para validar campos
-            sample = chunks[0][:100]
-            for record in sample:
+
+            for record in chunks[0]:
                 available_fields.update(record.keys())
-            
-            missing_fields = [field for field in required_fields if field not in available_fields]
-            if missing_fields:
-                missing_str = ", ".join(missing_fields)
-                raise ValueError(f"Missing required fields for preset: {missing_str}")
+
+            if required_fields:
+                missing_fields = [
+                    field for field in required_fields
+                    if field not in available_fields
+                ]
+
+                if missing_fields:
+                    missing_str = ", ".join(missing_fields)
+                    raise ValueError(f"Missing required fields for preset: {missing_str}")
+
+            self.validate_selected_field_exists(available_fields)
         
         # Paso 2: Procesar chunks en paralelo
         num_workers = min(cpu_count(), len(chunks))
@@ -209,7 +222,7 @@ class JsonProcessor(BaseProcessor):
         # Retornar seen keys para merge global
         return (kept_records, duplicates, filtered, seen)
     
-    def _get_dedup_key(self, record: Dict[str, Any]) -> str:
+    def _get_dedup_key(self, record: Dict[str, Any]) -> str | None:
         """
         Genera key de deduplicación según el preset.
         Usado para merge global de resultados paralelos.
@@ -217,10 +230,29 @@ class JsonProcessor(BaseProcessor):
         from app.enums.preset_operation import PresetOperation
         
         if self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL:
-            return record.get('email', '')
+            return self.normalize_email(record.get("email"))
+
         elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_ID:
-            return str(record.get('id', ''))
+            return self.normalize_text(record.get("id"))
+
         elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL_AND_PHONE:
-            return f"{record.get('email', '')}|{record.get('phone', '')}"
+            email = self.normalize_email(record.get("email"))
+            phone = self.normalize_text(record.get("phone"))
+
+            if not email or not phone:
+                return None
+
+            return f"{email}|{phone}"
+
+        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_FIELD:
+            if not self.filter_field:
+                return None
+
+            field_value = self.normalize_text(record.get(self.filter_field))
+
+            if not field_value:
+                return None
+
+            return field_value
         
         return None

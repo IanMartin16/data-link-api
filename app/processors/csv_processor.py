@@ -4,7 +4,7 @@ from multiprocessing import Pool, cpu_count
 from typing import List, Dict, Any
 
 from app.processors.base_processor import BaseProcessor, ProcessingResult
-
+from app.enums.preset_operation import PresetOperation
 
 class CsvProcessor(BaseProcessor):
     
@@ -47,6 +47,8 @@ class CsvProcessor(BaseProcessor):
         if missing_fields:
             missing_str = ", ".join(missing_fields)
             raise ValueError(f"Missing required fields for preset: {missing_str}")
+        
+        self.validate_selected_field_exists(df.columns)
 
         # Convertir a lista de dicts
         records = df.to_dict("records")
@@ -119,6 +121,8 @@ class CsvProcessor(BaseProcessor):
                     if missing_fields:
                         missing_str = ", ".join(missing_fields)
                         raise ValueError(f"Missing required fields for preset: {missing_str}")
+                    
+                    self.validate_selected_field_exists(original_columns)
                 
                 # Convertir chunk a lista de dicts
                 chunk_records = chunk_df.to_dict("records")
@@ -182,41 +186,36 @@ class CsvProcessor(BaseProcessor):
             filtered=total_filtered
         )
     
-    def _process_chunk(self, chunk: List[Dict[str, Any]]) -> tuple:
-        """
-        Procesa un chunk individual.
-        Retorna: (kept_records, duplicates, filtered, seen_keys)
-        """
-        seen = set()
-        duplicates = 0
-        filtered = 0
-        kept_records = []
-        
-        for record in chunk:
-            if not self.apply_preset(record, seen):
-                duplicates += 1
-                continue
-            
-            if not self.apply_custom_filter(record):
-                filtered += 1
-                continue
-            
-            kept_records.append(record)
-        
-        return (kept_records, duplicates, filtered, seen)
-    
-    def _get_dedup_key(self, record: Dict[str, Any]) -> str:
+    def _get_dedup_key(self, record: Dict[str, Any]) -> str | None:
         """
         Genera key de deduplicación según el preset.
         Usado para merge global de resultados paralelos.
         """
-        from app.enums.preset_operation import PresetOperation
         
         if self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL:
-            return record.get('email', '')
+            return self.normalize_email(record.get("email"))
+
         elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_ID:
-            return str(record.get('id', ''))
+            return self.normalize_text(record.get("id"))
+
         elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL_AND_PHONE:
-            return f"{record.get('email', '')}|{record.get('phone', '')}"
+            email = self.normalize_email(record.get("email"))
+            phone = self.normalize_text(record.get("phone"))
+
+            if not email or not phone:
+                return None
+
+            return f"{email}|{phone}"
+
+        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_FIELD:
+            if not self.filter_field:
+                return None
+
+            field_value = self.normalize_text(record.get(self.filter_field))
+
+            if not field_value:
+                return None
+
+            return field_value
         
         return None

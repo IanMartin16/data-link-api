@@ -30,8 +30,15 @@ class User(Base):
 
     # Billing placeholders (future use)
     stripe_customer_id = Column(String(255), nullable=True)
-    stripe_subscription_id = Column(String(255), nullable=True)
+    stripe_subscription_id = Column(String(255), nullable=True, index=True)
+    stripe_product_id = Column(String(255), nullable=True)
+    stripe_price_id = Column(String(255), nullable=True)
     billing_status = Column(String(50), nullable=True)
+
+    cancellation_scheduled = Column(Boolean, default=False, nullable=False)
+    stripe_cancel_at = Column(DateTime(timezone=True), nullable=True)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
 
     # Status
     is_active = Column(Boolean, default=True, nullable=False)
@@ -44,9 +51,14 @@ class User(Base):
         return f"<User {self.email} ({self.plan})>"
 
     @staticmethod
-    def generate_api_key():
+    def generate_api_key(prefix: str = "dl_"):
         """Generate a secure API key."""
-        return secrets.token_urlsafe(32)
+        normalized_prefix = prefix or "dl_"
+
+        if not normalized_prefix.endswith("_"):
+            normalized_prefix = f"{normalized_prefix}_"
+
+        return f"{normalized_prefix}{secrets.token_urlsafe(32)}"
 
     def increment_usage(self):
         """Increment processed file counters."""

@@ -31,10 +31,12 @@ class Settings(BaseSettings):
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
     stripe_starter_price_id: str | None = None
+    datalink_stripe_product_id: str | None = None
     billing_success_url: str = "http://localhost:3000/data-link?upgrade=success"
     billing_cancel_url: str = "http://localhost:3000/data-link?upgrade=cancelled"
 
     # App
+    datalink_api_key_prefix: str = "dl_"
     max_file_size_mb: int = 500
     worker_enabled: bool = True
     worker_interval_seconds: int = 15

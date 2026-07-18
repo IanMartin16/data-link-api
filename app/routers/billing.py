@@ -289,3 +289,32 @@ async def stripe_webhook(
         "ignored": True,
         "event_type": event_type,
     }
+
+@router.post("/portal-session")
+async def create_billing_portal_session(
+    user: User = Depends(verify_api_key),
+):
+    """
+    Create a Stripe Billing Portal session for the current user.
+    """
+
+    if not user.stripe_customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User does not have an active Stripe customer.",
+        )
+
+    if not user.stripe_subscription_id:
+        raise HTTPException(
+            status_code=400,
+            detail="User does not have an active Stripe subscription.",
+        )
+
+    try:
+        session = stripe_service.create_billing_portal_session(user)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        "portal_url": session.url,
+    }

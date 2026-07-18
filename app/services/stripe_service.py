@@ -199,6 +199,22 @@ class StripeService:
             return None
 
         return data[0]
+    
+    def create_billing_portal_session(self, user):
+        """
+        Create a Stripe Billing Portal session for the current Data_Link user.
+        """
+
+        if not settings.stripe_secret_key:
+            raise RuntimeError("STRIPE_SECRET_KEY is not configured.")
+
+        if not user.stripe_customer_id:
+            raise RuntimeError("User does not have a Stripe customer.")
+
+        return stripe.billing_portal.Session.create(
+            customer=user.stripe_customer_id,
+            return_url=settings.billing_portal_return_url,
+        )
 
     def _ensure_checkout_config(self):
         if not settings.stripe_secret_key:
@@ -214,7 +230,7 @@ class StripeService:
         )
 
         if not product_id:
-            raise RuntimeError("DATALINK_STRIPE_PRODUCT_ID is not configured.")
+            raise RuntimeError("DATALINK_STRIPE_PRODUCT_ID is not configured.")    
 
 
 stripe_service = StripeService()

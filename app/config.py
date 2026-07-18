@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     datalink_stripe_product_id: str | None = None
     billing_success_url: str = "http://localhost:3000/data-link?upgrade=success"
     billing_cancel_url: str = "http://localhost:3000/data-link?upgrade=cancelled"
+    billing_portal_return_url: str = "http://localhost:3000/data-link"
 
     # App
     datalink_api_key_prefix: str = "dl_"

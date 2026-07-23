@@ -1,15 +1,21 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app import models
+from app.api.health import router as health_router
 from app.config import get_settings
 from app.database import init_db, seed_plan_limits
-from app.routers import jobs, auth, analytics, billing, dashboard, admin
+from app.routers import (
+    admin,
+    analytics,
+    auth,
+    billing,
+    dashboard,
+    jobs,
+)
 from app.services.worker_service import worker_service
-
-# Importar modelos para asegurar create_all
-# Ajusta esta línea según tu estructura real
-from app import models
 
 settings = get_settings()
 
@@ -30,12 +36,13 @@ async def lifespan(app: FastAPI):
     else:
         print("⏸️ Worker deshabilitado")
 
-    yield
+    try:
+        yield
+    finally:
+        if settings.worker_enabled:
+            worker_service.stop()
 
-    if settings.worker_enabled:
-        worker_service.stop()
-
-    print("👋 DataLink API detenida")
+        print("👋 DataLink API detenida")
 
 
 app = FastAPI(
@@ -43,10 +50,11 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
     description=(
-        "Asynchronous CSV and JSON processing API for deduplication, filtering, "
-        "and lightweight data cleanup.\n\n"
-        "Built for developers and designed as a reliable processing core within the Evilink ecosystem."
-    )
+        "Asynchronous CSV and JSON processing API for deduplication, "
+        "filtering, and lightweight data cleanup.\n\n"
+        "Built for developers and designed as a reliable processing "
+        "core within the evi_link ecosystem."
+    ),
 )
 
 app.add_middleware(
@@ -57,6 +65,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(health_router)
+
 app.include_router(jobs.router)
 app.include_router(auth.router)
 app.include_router(analytics.router)
@@ -64,15 +74,11 @@ app.include_router(billing.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
 
+
 @app.get("/")
 async def root():
     return {
-        "message": "DataLink API v1.0.0",
+        "message": "Data_Link API v1.0.0",
         "docs": "/docs",
-        "health": "/health"
+        "health": "/api/health",
     }
-
-
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}

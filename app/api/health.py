@@ -43,7 +43,7 @@ async def health() -> HealthResponse:
             id="data-link",
             name="Data_Link",
             version="1.0.0",
-            environment=settings.environment,
+            environment="development",
             stack="fastapi",
         ),
         status=dependencies["status"],

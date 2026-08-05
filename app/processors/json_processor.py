@@ -1,40 +1,38 @@
 import json
-import ijson
 from io import BytesIO
 from multiprocessing import Pool, cpu_count
-from typing import List, Dict, Any
+from typing import Any, Dict, Iterator, List
+
+import ijson
 
 from app.processors.base_processor import BaseProcessor, ProcessingResult
 
 
 class JsonProcessor(BaseProcessor):
-    
+
     # Tamaño de chunk para procesamiento paralelo
     CHUNK_SIZE = 50000  # 50K registros por chunk
-    
+
+    # Umbral para cambiar de camino
+    LARGE_FILE_MB = 50
+
     def process(self, input_data: bytes) -> ProcessingResult:
         """
-        Procesa JSON con streaming y multiprocessing para mejor performance.
-        
-        Estrategia:
-        1. Stream JSON sin cargar todo en memoria (ijson)
-        2. Dividir en chunks
-        3. Procesar chunks en paralelo
-        4. Merge resultados
+        Procesa JSON. Archivos chicos en una pasada; grandes por streaming
+        y en paralelo.
         """
-        
-        # Modo: pequeño vs grande
         file_size_mb = len(input_data) / (1024 * 1024)
-        
-        if file_size_mb < 50:
-            # Archivos pequeños: método original (más rápido para pocos datos)
+
+        if file_size_mb < self.LARGE_FILE_MB:
             return self._process_small(input_data)
-        else:
-            # Archivos grandes: streaming + parallel
-            return self._process_large_streaming(input_data)
-    
+
+        return self._process_large_streaming(input_data)
+
+    # ------------------------------------------------------------------
+    # Camino chico
+    # ------------------------------------------------------------------
     def _process_small(self, input_data: bytes) -> ProcessingResult:
-        """Método original para archivos pequeños (<50MB)"""
+        """Archivos < LARGE_FILE_MB: todo en memoria."""
         try:
             data = json.loads(input_data.decode("utf-8"))
         except Exception as e:
@@ -48,43 +46,17 @@ class JsonProcessor(BaseProcessor):
 
         total_records = len(data)
 
-        # Validación de campos requeridos / campo seleccionado
-        required_fields = self.required_fields()
         if data:
             available_fields = set()
             for record in data:
                 available_fields.update(record.keys())
+            self._validate_fields(available_fields)
 
-            if required_fields:
-                missing_fields = [
-                    field for field in required_fields
-                    if field not in available_fields
-                ]
+        kept_records, duplicates, filtered = self.process_chunk(data)
 
-                if missing_fields:
-                    missing_str = ", ".join(missing_fields)
-                    raise ValueError(f"Missing required fields for preset: {missing_str}")
-
-            self.validate_selected_field_exists(available_fields)
-
-        # Procesamiento secuencial
-        seen = set()
-        duplicates = 0
-        filtered = 0
-        kept_records = []
-
-        for record in data:
-            if not self.apply_preset(record, seen):
-                duplicates += 1
-                continue
-
-            if not self.apply_custom_filter(record):
-                filtered += 1
-                continue
-
-            kept_records.append(record)
-
-        output_data = json.dumps(kept_records, indent=2, ensure_ascii=False).encode("utf-8")
+        output_data = json.dumps(
+            kept_records, indent=2, ensure_ascii=False
+        ).encode("utf-8")
 
         return ProcessingResult(
             data=output_data,
@@ -92,167 +64,121 @@ class JsonProcessor(BaseProcessor):
             duplicates=duplicates,
             filtered=filtered
         )
-    
+
+    # ------------------------------------------------------------------
+    # Camino grande
+    # ------------------------------------------------------------------
     def _process_large_streaming(self, input_data: bytes) -> ProcessingResult:
         """
-        Streaming + parallel processing para archivos grandes (>50MB).
-        
-        Ventajas:
-        - No carga todo en memoria
-        - Procesa en paralelo
-        - ~3x más rápido para archivos grandes
+        Archivos >= LARGE_FILE_MB: ijson + paralelo.
+
+        Los bloques salen hacia el pool conforme se arman, y la salida se
+        escribe registro por registro. Antes se acumulaba el archivo entero
+        dos veces: primero en `chunks` y después en `kept_records`.
         """
-        
-        # Paso 1: Stream y dividir en chunks
-        chunks = []
-        current_chunk = []
-        total_records = 0
-        
-        try:
-            # ijson parsea JSON sin cargar todo en memoria
-            parser = ijson.items(BytesIO(input_data), 'item')
-            
-            for record in parser:
-                if not isinstance(record, dict):
-                    raise ValueError("All JSON elements must be objects")
-                
-                current_chunk.append(record)
-                total_records += 1
-                
-                # Cuando el chunk alcanza tamaño, guardarlo
-                if len(current_chunk) >= self.CHUNK_SIZE:
-                    chunks.append(current_chunk)
-                    current_chunk = []
-            
-            # Agregar último chunk si tiene datos
-            if current_chunk:
-                chunks.append(current_chunk)
-        
-        except Exception as e:
-            raise ValueError(f"Invalid JSON file: {str(e)}")
-        
-        if not chunks:
-            raise ValueError("JSON file is empty")
-        
-        # Validación de campos requeridos (solo primer chunk)
-        required_fields = self.required_fields()
-        if chunks[0]:
-            available_fields = set()
+        validated = []
 
-            for record in chunks[0]:
-                available_fields.update(record.keys())
+        def chunk_stream() -> Iterator[List[Dict[str, Any]]]:
+            current_chunk: List[Dict[str, Any]] = []
 
-            if required_fields:
-                missing_fields = [
-                    field for field in required_fields
-                    if field not in available_fields
-                ]
+            try:
+                parser = ijson.items(BytesIO(input_data), "item")
 
-                if missing_fields:
-                    missing_str = ", ".join(missing_fields)
-                    raise ValueError(f"Missing required fields for preset: {missing_str}")
+                for record in parser:
+                    if not isinstance(record, dict):
+                        raise ValueError("All JSON elements must be objects")
 
-            self.validate_selected_field_exists(available_fields)
-        
-        # Paso 2: Procesar chunks en paralelo
-        num_workers = min(cpu_count(), len(chunks))
-        
-        if num_workers > 1:
-            # Multiprocessing
-            with Pool(processes=num_workers) as pool:
-                chunk_results = pool.map(self._process_chunk, chunks)
-        else:
-            # Fallback secuencial si solo hay 1 CPU o 1 chunk
-            chunk_results = [self._process_chunk(chunk) for chunk in chunks]
-        
-        # Paso 3: Merge resultados
+                    current_chunk.append(record)
+
+                    if len(current_chunk) >= self.CHUNK_SIZE:
+                        if not validated:
+                            self._validate_from_sample(current_chunk)
+                            validated.append(True)
+
+                        yield current_chunk
+                        current_chunk = []
+
+                if current_chunk:
+                    if not validated:
+                        self._validate_from_sample(current_chunk)
+                        validated.append(True)
+
+                    yield current_chunk
+            except ValueError:
+                raise
+            except Exception as e:
+                raise ValueError(f"Invalid JSON file: {str(e)}")
+
+        num_workers = max(1, cpu_count() - 1)
+
         seen_global = set()
-        kept_records = []
+        total_records = 0
         total_duplicates = 0
         total_filtered = 0
-        
-        for chunk_kept, chunk_dups, chunk_filt, chunk_seen_keys in chunk_results:
-            for record in chunk_kept:
-                # Re-verificar duplicados globalmente
-                # (porque cada chunk solo vio sus propios datos)
-                key = self._get_dedup_key(record)
-                if key and key in seen_global:
-                    total_duplicates += 1
-                    continue
-                
-                if key:
-                    seen_global.add(key)
-                
-                kept_records.append(record)
-            
-            total_duplicates += chunk_dups
-            total_filtered += chunk_filt
-        
-        # Generar output
-        output_data = json.dumps(kept_records, indent=2, ensure_ascii=False).encode("utf-8")
-        
+
+        parts: List[str] = []
+        written = 0
+
+        def consume(results) -> None:
+            nonlocal total_records, total_duplicates, total_filtered, written
+
+            for chunk_kept, chunk_dups, chunk_filt in results:
+                total_records += len(chunk_kept) + chunk_dups + chunk_filt
+                total_duplicates += chunk_dups
+                total_filtered += chunk_filt
+
+                for record in chunk_kept:
+                    # Un bloque solo vio sus propios datos: hay que
+                    # re-verificar contra el resto del archivo.
+                    key = self.dedup_key(record)
+
+                    if key is not None:
+                        if key in seen_global:
+                            total_duplicates += 1
+                            continue
+                        seen_global.add(key)
+
+                    parts.append(
+                        json.dumps(record, ensure_ascii=False, indent=2)
+                    )
+                    written += 1
+
+        if num_workers > 1:
+            with Pool(processes=num_workers) as pool:
+                consume(pool.imap(self.process_chunk, chunk_stream()))
+        else:
+            consume(self.process_chunk(chunk) for chunk in chunk_stream())
+
+        if not validated:
+            raise ValueError("JSON file is empty")
+
+        output_data = ("[\n" + ",\n".join(parts) + "\n]").encode("utf-8")
+
         return ProcessingResult(
             data=output_data,
             total=total_records,
             duplicates=total_duplicates,
             filtered=total_filtered
         )
-    
-    def _process_chunk(self, chunk: List[Dict[str, Any]]) -> tuple:
-        """
-        Procesa un chunk individual.
-        Retorna: (kept_records, duplicates, filtered, seen_keys)
-        """
-        seen = set()
-        duplicates = 0
-        filtered = 0
-        kept_records = []
-        
-        for record in chunk:
-            if not self.apply_preset(record, seen):
-                duplicates += 1
-                continue
-            
-            if not self.apply_custom_filter(record):
-                filtered += 1
-                continue
-            
-            kept_records.append(record)
-        
-        # Retornar seen keys para merge global
-        return (kept_records, duplicates, filtered, seen)
-    
-    def _get_dedup_key(self, record: Dict[str, Any]) -> str | None:
-        """
-        Genera key de deduplicación según el preset.
-        Usado para merge global de resultados paralelos.
-        """
-        from app.enums.preset_operation import PresetOperation
-        
-        if self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL:
-            return self.normalize_email(record.get("email"))
 
-        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_ID:
-            return self.normalize_text(record.get("id"))
+    # ------------------------------------------------------------------
+    # Auxiliares
+    # ------------------------------------------------------------------
+    def _validate_from_sample(self, sample: List[Dict[str, Any]]) -> None:
+        available_fields = set()
+        for record in sample:
+            available_fields.update(record.keys())
+        self._validate_fields(available_fields)
 
-        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL_AND_PHONE:
-            email = self.normalize_email(record.get("email"))
-            phone = self.normalize_text(record.get("phone"))
+    def _validate_fields(self, available_fields) -> None:
+        """Valida campos requeridos por preset y el campo seleccionado."""
+        missing_fields = [
+            field for field in self.required_fields()
+            if field not in available_fields
+        ]
 
-            if not email or not phone:
-                return None
+        if missing_fields:
+            missing_str = ", ".join(missing_fields)
+            raise ValueError(f"Missing required fields for preset: {missing_str}")
 
-            return f"{email}|{phone}"
-
-        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_FIELD:
-            if not self.filter_field:
-                return None
-
-            field_value = self.normalize_text(record.get(self.filter_field))
-
-            if not field_value:
-                return None
-
-            return field_value
-        
-        return None
+        self.validate_selected_field_exists(available_fields)

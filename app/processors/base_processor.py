@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
+
 from app.enums.preset_operation import PresetOperation
 from app.enums.filter_operator import FilterOperator
 
@@ -13,6 +14,15 @@ class ProcessingResult:
 
 
 class BaseProcessor(ABC):
+
+    # Presets cuyo trabajo es deduplicar. El resto filtra.
+    DEDUP_PRESETS = {
+        PresetOperation.REMOVE_DUPLICATES_BY_EMAIL,
+        PresetOperation.REMOVE_DUPLICATES_BY_ID,
+        PresetOperation.REMOVE_DUPLICATES_BY_EMAIL_AND_PHONE,
+        PresetOperation.REMOVE_DUPLICATES_BY_FIELD,
+    }
+
     def __init__(
         self,
         preset: PresetOperation,
@@ -51,6 +61,9 @@ class BaseProcessor(ABC):
 
         return []
 
+    def is_dedup_preset(self) -> bool:
+        return self.preset in self.DEDUP_PRESETS
+
     def normalize_text(self, value: Any) -> str:
         """Normalización básica de texto."""
         if value is None:
@@ -61,67 +74,57 @@ class BaseProcessor(ABC):
         """Normalización específica para email."""
         return self.normalize_text(value).lower()
 
-    def apply_preset(self, record: Dict[str, Any], seen: set) -> bool:
+    # ------------------------------------------------------------------
+    # Llave de deduplicación — FUENTE ÚNICA
+    #
+    # Antes esta lógica vivía duplicada en apply_preset (aquí) y en
+    # _get_dedup_key (en cada procesador). Llegaron a divergir: uno
+    # normalizaba el email y el otro no, así que dentro de un chunk
+    # "Ana@x.com" y "ana@x.com" se deduplicaban pero entre chunks no.
+    # Ahora hay un solo lugar donde se decide qué es la llave.
+    # ------------------------------------------------------------------
+    def dedup_key(self, record: Dict[str, Any]) -> Optional[str]:
         """
-        Aplica el preset.
-        Retorna True si el registro pasa.
-        Retorna False si debe excluirse.
-        """
+        Llave de deduplicación del registro.
 
+        Devuelve None cuando el registro NO debe deduplicarse: llave vacía,
+        combinación incompleta, o preset que no deduplica. Un None siempre
+        significa "consérvalo tal cual".
+        """
         if self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL:
-            email = self.normalize_email(record.get("email"))
-
-            # No usar vacíos como clave deduplicable
-            if not email:
-                return True
-
-            if email in seen:
-                return False
-
-            seen.add(email)
-            return True
-        
-        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_FIELD:
-            if not self.filter_field:
-                raise ValueError(
-                    "This preset requires a field name. "
-                    "Please choose the field to deduplicate by."
-                )
-
-            field_value = self.normalize_text(record.get(self.filter_field))
-
-            # No usar vacíos como clave deduplicable
-            if not field_value:
-                return True
-
-            if field_value in seen:
-                return False
-
-            seen.add(field_value)
-            return True
+            return self.normalize_email(record.get("email")) or None
 
         elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_ID:
-            record_id = self.normalize_text(record.get("id"))
-
-            # No usar vacíos como clave deduplicable
-            if not record_id:
-                return True
-
-            if record_id in seen:
-                return False
-
-            seen.add(record_id)
-            return True
+            return self.normalize_text(record.get("id")) or None
 
         elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_EMAIL_AND_PHONE:
             email = self.normalize_email(record.get("email"))
             phone = self.normalize_text(record.get("phone"))
 
-            # No usar combinaciones vacías como clave deduplicable
             if not email or not phone:
-                return True
+                return None
 
-            key = f"{email}|{phone}"
+            return f"{email}|{phone}"
+
+        elif self.preset == PresetOperation.REMOVE_DUPLICATES_BY_FIELD:
+            if not self.filter_field:
+                return None
+
+            return self.normalize_text(record.get(self.filter_field)) or None
+
+        return None
+
+    def apply_preset(self, record: Dict[str, Any], seen: set) -> bool:
+        """
+        Aplica el preset.
+        Retorna True si el registro pasa, False si debe excluirse.
+        """
+        if self.is_dedup_preset():
+            key = self.dedup_key(record)
+
+            # Sin llave utilizable no se deduplica: el registro se conserva.
+            if key is None:
+                return True
 
             if key in seen:
                 return False
@@ -158,7 +161,7 @@ class BaseProcessor(ABC):
             self.normalize_text(field_value),
             self.normalize_text(self.filter_value)
         )
-    
+
     def validate_selected_field_exists(self, available_fields) -> None:
         """
         Valida que REMOVE_DUPLICATES_BY_FIELD tenga un campo seleccionado
@@ -181,3 +184,39 @@ class BaseProcessor(ABC):
                 f'Field "{self.filter_field}" was not found in your file. '
                 f"Available fields: {available}"
             )
+
+    # ------------------------------------------------------------------
+    # Procesamiento de un bloque — COMPARTIDO
+    #
+    # Vivía solo en JsonProcessor. CsvProcessor lo llamaba sin tenerlo,
+    # y por eso el camino de archivos grandes tronaba con AttributeError.
+    # ------------------------------------------------------------------
+    def process_chunk(
+        self, chunk: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], int, int]:
+        """
+        Procesa un bloque de registros de forma aislada.
+
+        Retorna (registros_conservados, duplicados, filtrados).
+
+        NO devuelve el conjunto `seen`: el merge global vuelve a calcular la
+        llave con dedup_key(), así que devolverlo obligaba a serializar
+        cientos de miles de strings de vuelta al proceso padre para tirarlas.
+        """
+        seen = set()
+        duplicates = 0
+        filtered = 0
+        kept_records = []
+
+        for record in chunk:
+            if not self.apply_preset(record, seen):
+                duplicates += 1
+                continue
+
+            if not self.apply_custom_filter(record):
+                filtered += 1
+                continue
+
+            kept_records.append(record)
+
+        return (kept_records, duplicates, filtered)

@@ -78,9 +78,9 @@ PLAN_LIMITS_SEED = [
     },
     {
         "plan": "STARTER",
-        "files_per_month": 100,
+        "files_per_month": 500,
         "max_file_size_mb": 100,
-        "max_records_per_file": 2000000,
+        "max_records_per_file": 10000000,
         "num_presets": 5,
         "custom_filters_allowed": True,
         "api_keys_count": 1,

@@ -1,16 +1,61 @@
+import os
+import tempfile
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Tuple
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 from app.enums.preset_operation import PresetOperation
 from app.enums.filter_operator import FilterOperator
 
 
+# Lo que los procesadores aceptan como entrada: una ruta en disco.
+Source = Union[str, Path]
+
+
 class ProcessingResult:
-    def __init__(self, data: bytes, total: int, duplicates: int, filtered: int):
-        self.data = data
+    """
+    El resultado vive en disco, no en memoria.
+
+    `output_path` es un archivo temporal: el llamador debe subirlo al bucket
+    en streaming y despues llamar cleanup(). La propiedad `data` sigue
+    existiendo por compatibilidad, pero lee el archivo COMPLETO a RAM —
+    usala solo en pruebas o con archivos chicos.
+    """
+
+    def __init__(
+        self,
+        output_path: Source,
+        total: int,
+        duplicates: int,
+        filtered: int,
+    ):
+        self.output_path = str(output_path)
         self.total_records = total
         self.duplicates_removed = duplicates
         self.records_filtered = filtered
+
+    @property
+    def size_bytes(self) -> int:
+        return os.path.getsize(self.output_path)
+
+    @property
+    def data(self) -> bytes:
+        with open(self.output_path, "rb") as fh:
+            return fh.read()
+
+    def cleanup(self) -> None:
+        """Borra el temporal. Llamar siempre en un finally."""
+        try:
+            os.unlink(self.output_path)
+        except OSError:
+            pass
+
+
+def make_temp_file(suffix: str) -> str:
+    """Crea un temporal cerrado y devuelve su ruta."""
+    fd, path = tempfile.mkstemp(suffix=suffix, prefix="datalink_")
+    os.close(fd)
+    return path
 
 
 class BaseProcessor(ABC):
@@ -36,8 +81,39 @@ class BaseProcessor(ABC):
         self.filter_operator = filter_operator
 
     @abstractmethod
-    def process(self, input_data: bytes) -> ProcessingResult:
-        pass
+    def process(self, source: Source) -> ProcessingResult:
+        """
+        Procesa el archivo que vive en `source` (una ruta en disco).
+
+        Antes recibia `bytes`, lo que obligaba a tener el archivo entero en
+        RAM antes de empezar: 371 MB de entrada se veian como ~545 MB de
+        consumo. Con una ruta, pandas e ijson leen por bloques desde disco
+        y el pico deja de depender del tamano del archivo.
+        """
+
+    @staticmethod
+    def source_size_mb(source: Source) -> float:
+        return os.path.getsize(source) / (1024 * 1024)
+
+    @staticmethod
+    def worker_count() -> int:
+        """
+        Procesos para el pool.
+
+        cpu_count() dentro de un contenedor devuelve los cores del HOST, no
+        los que el plan asigno. En Railway eso puede significar arrancar 30
+        procesos sobre 2 vCPU y perder rendimiento en vez de ganarlo.
+        DL_WORKERS manda cuando esta definido.
+        """
+        configured = os.getenv("DL_WORKERS")
+        if configured and configured.isdigit() and int(configured) > 0:
+            return int(configured)
+
+        try:
+            from multiprocessing import cpu_count
+            return max(1, cpu_count() - 1)
+        except NotImplementedError:
+            return 1
 
     def required_fields(self) -> List[str]:
         """Campos requeridos por preset a nivel dataset."""

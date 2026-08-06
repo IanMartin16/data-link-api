@@ -1,47 +1,41 @@
 import csv
-from io import BytesIO, StringIO
 from multiprocessing import Pool, cpu_count
 from typing import Any, Dict, Iterator, List
 
 import pandas as pd
 
-from app.processors.base_processor import BaseProcessor, ProcessingResult
+from app.processors.base_processor import (
+    BaseProcessor,
+    ProcessingResult,
+    Source,
+    make_temp_file,
+)
 
 
 class CsvProcessor(BaseProcessor):
 
-    # Tamaño de chunk para lectura de Pandas
-    CHUNK_SIZE = 50000  # 50K filas por chunk
+    # Filas por bloque de lectura
+    CHUNK_SIZE = 50000
 
     # Umbral para cambiar de camino
     LARGE_FILE_MB = 50
 
-    # Opciones de lectura compartidas.
     # dtype=str + keep_default_na=False conservan el archivo tal cual: sin esto
     # pandas convierte "007" en 7 y una columna con huecos vuelve enteros en
-    # flotantes ("1" -> "1.0"), es decir, la herramienta de limpieza alteraba
-    # los datos que debía respetar.
+    # flotantes ("1" -> "1.0").
     READ_OPTIONS = {"dtype": str, "keep_default_na": False}
 
-    def process(self, input_data: bytes) -> ProcessingResult:
-        """
-        Procesa CSV. Archivos chicos en una pasada; grandes por bloques
-        en paralelo.
-        """
-        file_size_mb = len(input_data) / (1024 * 1024)
-
-        if file_size_mb < self.LARGE_FILE_MB:
-            return self._process_small(input_data)
-
-        return self._process_large_chunked(input_data)
+    def process(self, source: Source) -> ProcessingResult:
+        if self.source_size_mb(source) < self.LARGE_FILE_MB:
+            return self._process_small(source)
+        return self._process_large_chunked(source)
 
     # ------------------------------------------------------------------
     # Camino chico
     # ------------------------------------------------------------------
-    def _process_small(self, input_data: bytes) -> ProcessingResult:
-        """Archivos < LARGE_FILE_MB: todo en memoria."""
+    def _process_small(self, source: Source) -> ProcessingResult:
         try:
-            df = pd.read_csv(BytesIO(input_data), **self.READ_OPTIONS)
+            df = pd.read_csv(source, **self.READ_OPTIONS)
         except Exception as e:
             raise ValueError(f"Invalid CSV file: {str(e)}")
 
@@ -54,36 +48,37 @@ class CsvProcessor(BaseProcessor):
 
         kept_records, duplicates, filtered = self.process_chunk(records)
 
-        output_data = self._write_csv(iter(kept_records), columns)
+        output_path = make_temp_file(".csv")
+        with open(output_path, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=columns, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(kept_records)
 
         return ProcessingResult(
-            data=output_data,
+            output_path=output_path,
             total=total_records,
             duplicates=duplicates,
-            filtered=filtered
+            filtered=filtered,
         )
 
     # ------------------------------------------------------------------
     # Camino grande
     # ------------------------------------------------------------------
-    def _process_large_chunked(self, input_data: bytes) -> ProcessingResult:
+    def _process_large_chunked(self, source: Source) -> ProcessingResult:
         """
-        Archivos >= LARGE_FILE_MB: lectura por bloques + paralelo.
+        Lectura por bloques desde disco + paralelo + escritura incremental.
 
-        Los bloques se entregan al pool conforme se leen, en vez de
-        acumularse todos primero. Antes, el paso de lectura dejaba el
-        dataset completo en RAM como diccionarios de Python y recién
-        entonces empezaba a trabajar: el camino "de bajo consumo"
-        gastaba más memoria que el simple.
+        Ni la entrada ni la salida se sostienen completas en memoria: el pico
+        depende de CHUNK_SIZE, no del tamano del archivo. Lo unico que crece
+        con el dataset es `seen_global`, que es inevitable para deduplicar
+        de verdad contra todo el archivo.
         """
         columns_holder: List[List[str]] = []
 
         def chunk_stream() -> Iterator[List[Dict[str, Any]]]:
             try:
                 chunk_iterator = pd.read_csv(
-                    BytesIO(input_data),
-                    chunksize=self.CHUNK_SIZE,
-                    **self.READ_OPTIONS
+                    source, chunksize=self.CHUNK_SIZE, **self.READ_OPTIONS
                 )
 
                 for chunk_df in chunk_iterator:
@@ -98,68 +93,65 @@ class CsvProcessor(BaseProcessor):
             except Exception as e:
                 raise ValueError(f"Invalid CSV file: {str(e)}")
 
-        num_workers = max(1, cpu_count() - 1)
+        num_workers = self.worker_count()
 
         seen_global = set()
         total_records = 0
         total_duplicates = 0
         total_filtered = 0
 
-        buffer = StringIO()
-        writer = None
+        output_path = make_temp_file(".csv")
 
-        def consume(results) -> None:
-            nonlocal total_records, total_duplicates, total_filtered, writer
+        with open(output_path, "w", newline="", encoding="utf-8") as fh:
+            writer = None
 
-            for chunk_kept, chunk_dups, chunk_filt in results:
-                total_records += len(chunk_kept) + chunk_dups + chunk_filt
-                total_duplicates += chunk_dups
-                total_filtered += chunk_filt
+            def consume(results) -> None:
+                nonlocal total_records, total_duplicates, total_filtered, writer
 
-                if writer is None:
-                    columns = columns_holder[0] if columns_holder else []
-                    writer = csv.DictWriter(
-                        buffer, fieldnames=columns, extrasaction="ignore"
-                    )
-                    writer.writeheader()
+                for chunk_kept, chunk_dups, chunk_filt in results:
+                    total_records += len(chunk_kept) + chunk_dups + chunk_filt
+                    total_duplicates += chunk_dups
+                    total_filtered += chunk_filt
 
-                for record in chunk_kept:
-                    # Un bloque solo vio sus propios datos: hay que
-                    # re-verificar contra el resto del archivo.
-                    key = self.dedup_key(record)
+                    if writer is None:
+                        columns = columns_holder[0] if columns_holder else []
+                        writer = csv.DictWriter(
+                            fh, fieldnames=columns, extrasaction="ignore"
+                        )
+                        writer.writeheader()
 
-                    if key is not None:
-                        if key in seen_global:
-                            total_duplicates += 1
-                            continue
-                        seen_global.add(key)
+                    for record in chunk_kept:
+                        # Cada bloque solo vio sus propios datos.
+                        key = self.dedup_key(record)
 
-                    writer.writerow(record)
+                        if key is not None:
+                            if key in seen_global:
+                                total_duplicates += 1
+                                continue
+                            seen_global.add(key)
 
-        if num_workers > 1:
-            with Pool(processes=num_workers) as pool:
-                # imap consume el generador de forma perezosa y devuelve
-                # los resultados en orden, así que el archivo se escribe
-                # conforme avanza en vez de acumularse entero.
-                consume(pool.imap(self.process_chunk, chunk_stream()))
-        else:
-            consume(self.process_chunk(chunk) for chunk in chunk_stream())
+                        writer.writerow(record)
 
-        if writer is None:
-            raise ValueError("CSV file is empty")
+            if num_workers > 1:
+                with Pool(processes=num_workers) as pool:
+                    consume(pool.imap(self.process_chunk, chunk_stream()))
+            else:
+                consume(self.process_chunk(chunk) for chunk in chunk_stream())
+
+            if writer is None:
+                raise ValueError("CSV file is empty")
 
         return ProcessingResult(
-            data=buffer.getvalue().encode("utf-8"),
+            output_path=output_path,
             total=total_records,
             duplicates=total_duplicates,
-            filtered=total_filtered
+            filtered=total_filtered,
         )
 
     # ------------------------------------------------------------------
     # Auxiliares
     # ------------------------------------------------------------------
     def _validate_columns(self, columns) -> None:
-        """Valida campos requeridos por preset y el campo seleccionado."""
         missing_fields = [
             field for field in self.required_fields() if field not in columns
         ]
@@ -169,14 +161,3 @@ class CsvProcessor(BaseProcessor):
             raise ValueError(f"Missing required fields for preset: {missing_str}")
 
         self.validate_selected_field_exists(columns)
-
-    def _write_csv(self, records: Iterator[Dict[str, Any]], columns) -> bytes:
-        """Escribe registros a CSV sin construir un DataFrame intermedio."""
-        buffer = StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
-        writer.writeheader()
-
-        for record in records:
-            writer.writerow(record)
-
-        return buffer.getvalue().encode("utf-8")

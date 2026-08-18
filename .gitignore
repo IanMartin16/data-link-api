@@ -11,6 +11,7 @@ __pycache__/
 QUICKSTART.md
 railway.json
 RAILWAY_DEPLOY_GUIDE.md
+WORKER_SETUP.md
 evidencias_post_deploy_data-link.md
 .env.* 
 .venv/
@@ -18,3 +19,4 @@ __pycache__/
 *.pyc
 .env
 *:Zone.Identifier
+

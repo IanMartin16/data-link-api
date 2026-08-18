@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Código
 COPY app ./app
 
+COPY alembic.ini .
+COPY migrations ./migrations
+
 # Puerto
 EXPOSE 8000
 

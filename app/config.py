@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     worker_interval_seconds: int = 15
     environment: str = "development"
 
+    # Worker
+    dl_workers: int = 0            # 0 = auto (cpu_count - 1)
+    dl_poll_interval: float = 2.0
+    dl_stale_minutes: int = 30
+
     class Config:
         env_file = ".env"
 

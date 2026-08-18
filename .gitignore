@@ -5,6 +5,7 @@ env/
 .venv
 .env
 .env.example
+__pycache__/
 
 # Docs
 QUICKSTART.md
@@ -12,3 +13,8 @@ railway.json
 RAILWAY_DEPLOY_GUIDE.md
 evidencias_post_deploy_data-link.md
 .env.* 
+.venv/
+__pycache__/
+*.pyc
+.env
+*:Zone.Identifier

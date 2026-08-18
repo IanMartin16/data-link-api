@@ -31,3 +31,5 @@ httpx==0.26.0
 
 # Billing
 stripe==11.6.0
+
+alembic>=1.13
